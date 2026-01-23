@@ -9,7 +9,7 @@ Cross-platform DNS/Domain info tool voor **Kali Linux**, **macOS** en **Windows*
 Als je Go geïnstalleerd hebt:
 
 ```bash
-go install github.com/<JOUW_GITHUB_USER>/<JOUW_REPO>@latest
+go install github.com/lucasenlucas/Lucas_DNS@latest
 ```
 
 Daarna:
@@ -20,19 +20,27 @@ lucasdns --help
 
 ### Optie 2 — via GitHub Releases (aanrader voor non-Go users)
 
-Publiceer releases met prebuilt binaries (Linux/macOS/Windows). Dan kunnen users downloaden en in hun PATH zetten.
+Download de laatste release binaries voor jouw platform (Linux/macOS/Windows) vanaf [GitHub Releases](https://github.com/lucasenlucas/Lucas_DNS/releases).
 
-Linux/macOS installer (download latest release):
+**Linux/macOS installer (automatisch):**
 
 ```bash
-REPO="owner/repo" sh scripts/install.sh
+curl -fsSL https://raw.githubusercontent.com/lucasenlucas/Lucas_DNS/main/scripts/install.sh | sh
 ```
 
-Windows PowerShell:
+Of handmatig:
+
+```bash
+REPO="lucasenlucas/Lucas_DNS" sh scripts/install.sh
+```
+
+**Windows PowerShell:**
 
 ```powershell
-.\scripts\install.ps1 -Repo "owner/repo"
+.\scripts\install.ps1 -Repo "lucasenlucas/Lucas_DNS"
 ```
+
+Of download handmatig de `.zip` voor Windows vanaf de [releases pagina](https://github.com/lucasenlucas/Lucas_DNS/releases).
 
 ## Gebruik
 

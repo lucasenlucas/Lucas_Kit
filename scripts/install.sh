@@ -3,11 +3,11 @@ set -eu
 
 # Usage:
 #   REPO="owner/repo" sh install.sh
-#   (default) REPO="lucasdns/lucasdns"
+#   (default) REPO="lucasenlucas/Lucas_DNS"
 #
 # Installs latest GitHub Release asset into /usr/local/bin (or ~/.local/bin if not writable)
 
-REPO="${REPO:-lucasdns/lucasdns}"
+REPO="${REPO:-lucasenlucas/Lucas_DNS}"
 BIN_NAME="${BIN_NAME:-lucasdns}"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -78,4 +78,3 @@ mv "./${BIN_NAME}" "${dest}/lucasdns"
 
 echo "Installed to ${dest}/lucasdns"
 echo "Run: lucasdns --help"
-

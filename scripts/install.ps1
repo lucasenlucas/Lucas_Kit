@@ -1,5 +1,5 @@
 param(
-  [string]$Repo = "lucasdns/lucasdns",
+  [string]$Repo = "lucasenlucas/Lucas_DNS",
   [string]$BinName = "lucasdns"
 )
 
@@ -41,4 +41,3 @@ Copy-Item -Path $exe -Destination (Join-Path $dest "lucasdns.exe") -Force
 
 Write-Host "Installed to $dest\\lucasdns.exe"
 Write-Host "Make sure $dest is in your PATH, then run: lucasdns --help"
-
