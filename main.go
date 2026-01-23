@@ -22,7 +22,7 @@ import (
 	"github.com/miekg/dns"
 )
 
-const version = "1.0.2"
+const version = "1.1.1"
 
 func printBanner() {
 	banner := `
