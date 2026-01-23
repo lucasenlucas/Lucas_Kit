@@ -9,7 +9,7 @@ Cross-platform DNS/Domain info tool voor **Kali Linux**, **macOS** en **Windows*
 Als je Go geïnstalleerd hebt:
 
 ```bash
-go install github.com/<JOUW_GITHUB_USER>/<JOUW_REPO>@latest
+go install github.com/lucasenlucas/Lucas_DNS@latest
 ```
 
 Daarna:
