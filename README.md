@@ -69,3 +69,7 @@ lucaskill -d example.com -t 10
 ```
 
 > **⚠️ DISCLAIMER:** Gebruik Lucaskill alleen op systemen waar je expliciete toestemming voor hebt.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
