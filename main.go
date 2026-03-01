@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const version = "4.3.0"
+const version = "4.4.0"
 
 type options struct {
 	domain  string

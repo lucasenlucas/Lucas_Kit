@@ -14,7 +14,8 @@ import (
 func runWebAnalysis(o options) {
 	domain := normalizeDomain(o.domain)
 	if !o.jsonOut {
-		fmt.Printf("[*] Starting Web Analysis for target: %s\n", domain)
+		fmt.Printf("🌐 Starten van Web Analyse voor: %s\n", domain)
+		fmt.Println("────────────────────────────────────────────────────────────")
 	}
 
 	client := &http.Client{
@@ -56,7 +57,8 @@ func runWebAnalysis(o options) {
 			fmt.Printf("[!] HTTP Error: %v\n", reqErr)
 		} else {
 			if !o.jsonOut {
-				fmt.Printf("[+] Final URL: %s (Status: %d)\n", resp.Request.URL.String(), resp.StatusCode)
+				fmt.Printf("│ [HTTP] Uiteindelijke URL: %s\n", resp.Request.URL.String())
+				fmt.Printf("│ [HTTP] Status Code:    %d\n", resp.StatusCode)
 			}
 		}
 	}
@@ -65,7 +67,8 @@ func runWebAnalysis(o options) {
 		if resp != nil && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
 			cert := resp.TLS.PeerCertificates[0]
 			if !o.jsonOut {
-				fmt.Printf("[+] TLS Cert Issuer: %s, Valid To: %v\n", cert.Issuer.CommonName, cert.NotAfter)
+				fmt.Printf("│ [TLS]  Issuer:         %s\n", cert.Issuer.CommonName)
+				fmt.Printf("│ [TLS]  Geldig tot:     %v\n", cert.NotAfter.Format("02-01-2006"))
 			}
 		} else {
 			if !o.jsonOut {
@@ -76,8 +79,17 @@ func runWebAnalysis(o options) {
 
 	if o.headersCheck {
 		if resp != nil && !o.jsonOut {
-			fmt.Printf("[+] HSTS: %s\n", resp.Header.Get("Strict-Transport-Security"))
-			fmt.Printf("[+] CSP: %s\n", resp.Header.Get("Content-Security-Policy"))
+			hsts := resp.Header.Get("Strict-Transport-Security")
+			csp := resp.Header.Get("Content-Security-Policy")
+			if hsts == "" {
+				hsts = "Niet geconfigureerd"
+			}
+			if csp == "" {
+				csp = "Niet geconfigureerd"
+			}
+
+			fmt.Printf("│ [SEC]  HSTS:           %s\n", hsts)
+			fmt.Printf("│ [SEC]  CSP:            %s\n", csp)
 		}
 	}
 
@@ -142,7 +154,11 @@ func runWebAnalysis(o options) {
 		}
 		wg.Wait()
 		if !o.jsonOut {
-			fmt.Printf("[+] Open Ports: %v\n", portsData)
+			if len(portsData) > 0 {
+				fmt.Printf("│ [PORT] Open Poorten:   %v\n", portsData)
+			} else {
+				fmt.Println("│ [PORT] Geen veelvoorkomende poorten open gevonden.")
+			}
 		}
 	}
 
@@ -174,7 +190,7 @@ func runWebAnalysis(o options) {
 		}
 
 		if !o.jsonOut && len(techList) > 0 {
-			fmt.Printf("[+] Detected Tech: %s\n", strings.Join(techList, ", "))
+			fmt.Printf("│ [TECH] Gedetecteerd:   %s\n", strings.Join(techList, ", "))
 		}
 	}
 

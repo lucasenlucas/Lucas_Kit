@@ -115,7 +115,8 @@ func runVulnAnalysis(o options) {
 
 	if o.dirCheck {
 		if !o.jsonOut {
-			fmt.Printf("\n[*] Start Directory & File Busting op %s...\n", domain)
+			fmt.Printf("📂 Starten van Directory & File Busting op %s...\n", domain)
+			fmt.Println("────────────────────────────────────────────────────────────")
 		}
 
 		words, err := getWordlist("common")
@@ -126,7 +127,8 @@ func runVulnAnalysis(o options) {
 
 	if o.paramsCheck {
 		if !o.jsonOut {
-			fmt.Printf("\n[*] Start Parameter Discovery op %s...\n", domain)
+			fmt.Printf("\n🔍 Starten van Parameter Discovery op %s...\n", domain)
+			fmt.Println("────────────────────────────────────────────────────────────")
 		}
 		words, err := getWordlist("parameters")
 		if err == nil {
@@ -136,7 +138,8 @@ func runVulnAnalysis(o options) {
 
 	if o.cmsCheck {
 		if !o.jsonOut {
-			fmt.Printf("\n[*] Start CMS Vulnerability & Footprint Scan op %s...\n", domain)
+			fmt.Printf("\n🛡️ Starten van CMS Vulnerability & Footprint Scan op %s...\n", domain)
+			fmt.Println("────────────────────────────────────────────────────────────")
 		}
 		isWordPress = runCMSScan(client, domain, o)
 	}

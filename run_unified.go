@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 func runUnifiedAnalysis(o options) {
-	fmt.Printf("\n🚀 NetScope Analysis gestart voor doelwit: %s\n", o.domain)
-	fmt.Println(strings.Repeat("=", 60))
+	if !o.jsonOut {
+		fmt.Printf("\n🚀 NetScope Unified Analysis: %s\n", o.domain)
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	}
 
 	ctx := context.Background()
 
@@ -19,7 +20,9 @@ func runUnifiedAnalysis(o options) {
 	}
 
 	if runDNS {
-		fmt.Println("\n🔍 [MODULE: DNS & MAIL SECURITY]")
+		if !o.jsonOut {
+			fmt.Println("\n📡 [MODULE: DNS & MAIL SECURITY]")
+		}
 		runDNSAnalysis(ctx, o)
 	}
 
@@ -30,7 +33,9 @@ func runUnifiedAnalysis(o options) {
 	}
 
 	if runWeb {
-		fmt.Println("\n🛡️  [MODULE: WEB SECURITY & ANALYSIS]")
+		if !o.jsonOut {
+			fmt.Println("\n🛡️  [MODULE: WEB SECURITY & ANALYSIS]")
+		}
 		runWebAnalysis(o)
 	}
 
@@ -40,22 +45,24 @@ func runUnifiedAnalysis(o options) {
 		runDiscovery = true
 	}
 	if runDiscovery {
-		fmt.Println("\n🔍 [MODULE: VULNERABILITY & DISCOVERY]")
+		if !o.jsonOut {
+			fmt.Println("\n🔍 [MODULE: VULNERABILITY & DISCOVERY]")
+		}
 		runVulnAnalysis(o)
 	}
 
 	// Metrics / Measure routing
 	if o.measure {
-		fmt.Println("\n⚡ [MODULE: L7 METRICS & MEASURE]")
-		// the measure logic is technically merged into web_analysis,
-		// but since we split it, let's keep it simple for now or call runWebAnalysis again
-		// with measure flag handled. (We will handle this in web_analysis directly later).
-		// We actually moved measure logic to runWebAnalysis in our previous rewrite,
-		// so we just call it if only measure is passed.
+		if !o.jsonOut {
+			fmt.Println("\n⚡ [MODULE: L7 METRICS & MEASURE]")
+		}
 		if !runWeb {
 			runWebAnalysis(o)
 		}
 	}
 
-	fmt.Println("\n✅ Analysis Voltooid.")
+	if !o.jsonOut {
+		fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("✅ Alle aangevraagde analyses zijn voltooid.")
+	}
 }
