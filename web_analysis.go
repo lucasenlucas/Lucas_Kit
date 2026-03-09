@@ -13,7 +13,10 @@ import (
 
 func runWebAnalysis(o options) {
 	domain := normalizeDomain(o.domain)
-	if !o.jsonOut {
+	// Only show this header if we are NOT in a focused measure-only run
+	isMeasureOnly := o.measure && !o.siteScan && !o.httpCheck && !o.tlsCheck && !o.headersCheck && !o.cacheCheck && !o.fingerCheck && !o.portsCheck && !o.pathsCheck && !o.corsCheck && !o.cookieCheck && !o.techCheck && !o.crawlerCheck && !o.methodCheck
+
+	if !o.jsonOut && !isMeasureOnly {
 		fmt.Printf("🌐 Starten van Web Analyse voor: %s\n", domain)
 		fmt.Println("────────────────────────────────────────────────────────────")
 	}
@@ -123,10 +126,22 @@ func runWebAnalysis(o options) {
 		}
 
 		if !o.jsonOut {
+			isMeasureOnly := o.measure && !o.siteScan && !o.httpCheck && !o.tlsCheck && !o.headersCheck && !o.cacheCheck && !o.fingerCheck && !o.portsCheck && !o.pathsCheck && !o.corsCheck && !o.cookieCheck && !o.techCheck && !o.crawlerCheck && !o.methodCheck
+			if isMeasureOnly {
+				fmt.Printf("\n⚡ [MEASURE] Latency voor %s:\n", domain)
+			}
 			fmt.Printf("[*] Probes: %d/%d success\n", successProbes, o.probes)
 			if successProbes > 0 {
-				fmt.Printf("[*] Server Header: %s\n", server)
-				fmt.Printf("[*] X-Powered-By: %s\n", poweredBy)
+				var total int64
+				for _, l := range latencies {
+					total += l
+				}
+				avg := float64(total) / float64(successProbes)
+				fmt.Printf("[*] Gemiddelde Latency: %.2fms\n", avg)
+				fmt.Printf("[*] Server Header:     %s\n", server)
+				if poweredBy != "" {
+					fmt.Printf("[*] X-Powered-By:      %s\n", poweredBy)
+				}
 			}
 		}
 	}

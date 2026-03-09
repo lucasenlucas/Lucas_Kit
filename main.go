@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const version = "4.4.0"
+const version = "4.5.0"
 
 type options struct {
 	domain  string
@@ -67,6 +67,7 @@ type options struct {
 	outputDir string
 	check     bool
 	update    bool
+	siteScan  bool
 }
 
 func main() {
@@ -81,6 +82,7 @@ func main() {
 	flag.BoolVar(&o.version, "version", false, "Toon NetScope versie")
 	flag.BoolVar(&o.check, "check", false, "Controleer op updates")
 	flag.BoolVar(&o.update, "update", false, "Update naar de nieuwste versie")
+	flag.BoolVar(&o.siteScan, "sitescan", false, "Voer alle web security scans direct uit")
 
 	// DNS & Mail
 	flag.BoolVar(&o.inf, "inf", false, "DNS + Mail checks (combineer met -n of -whois)")
@@ -168,6 +170,7 @@ func main() {
 		})
 
 		printBoxedSection("🔍 DISCOVERY & ANALYSE", []flagHelp{
+			{"-sitescan", "Shortcut: Voer alle onderstaande web scans in één keer uit"},
 			{"-dir", "Uitgebreide Directory & File Busting (downloadt SecLists)"},
 			{"-params", "Verborgen Parameter Discovery (Fuzzing)"},
 			{"-cms", "Agressieve CMS & Plugin discovery (WP/Joomla)"},
@@ -185,11 +188,27 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nVoorbeelden:\n")
 		fmt.Fprintf(os.Stderr, "  NetScope -check\n")
 		fmt.Fprintf(os.Stderr, "  NetScope -d lucasmangroelal.nl -inf -n\n")
+		fmt.Fprintf(os.Stderr, "  NetScope -d lucasmangroelal.nl -sitescan\n")
 		fmt.Fprintf(os.Stderr, "  NetScope -d lucasmangroelal.nl -tls -headers -ports -tech\n")
 		fmt.Fprintf(os.Stderr, "  NetScope -d lucasmangroelal.nl -t 15 -level 8 -no-keepalive\n")
 	}
 
 	flag.Parse()
+
+	if o.siteScan {
+		o.httpCheck = true
+		o.tlsCheck = true
+		o.headersCheck = true
+		o.cacheCheck = true
+		o.fingerCheck = true
+		o.portsCheck = true
+		o.pathsCheck = true
+		o.corsCheck = true
+		o.cookieCheck = true
+		o.techCheck = true
+		o.crawlerCheck = true
+		o.methodCheck = true
+	}
 
 	if o.version {
 		printBanner(version)

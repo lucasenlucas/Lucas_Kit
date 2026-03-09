@@ -6,7 +6,11 @@ import (
 )
 
 func runUnifiedAnalysis(o options) {
-	if !o.jsonOut {
+	// Check if this is a "focused" run (just measure or just sitescan)
+	// to avoid cluttering with analysis templates if not needed.
+	isFocused := (o.measure || o.siteScan) && !(o.inf || o.n || o.whois || o.subs || o.dirCheck || o.paramsCheck || o.cmsCheck)
+
+	if !o.jsonOut && !isFocused {
 		fmt.Printf("\n🚀 NetScope Unified Analysis: %s\n", o.domain)
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	}
@@ -61,7 +65,7 @@ func runUnifiedAnalysis(o options) {
 		}
 	}
 
-	if !o.jsonOut {
+	if !o.jsonOut && !isFocused {
 		fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		fmt.Println("✅ Alle aangevraagde analyses zijn voltooid.")
 	}
