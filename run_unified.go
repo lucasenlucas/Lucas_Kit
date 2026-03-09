@@ -69,4 +69,8 @@ func runUnifiedAnalysis(o options) {
 		fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		fmt.Println("✅ Alle aangevraagde analyses zijn voltooid.")
 	}
+
+	if o.siteScan && !o.jsonOut {
+		generatePDFReport(o)
+	}
 }

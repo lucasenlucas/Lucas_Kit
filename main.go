@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const version = "4.5.0"
+const version = "4.6.0"
 
 type options struct {
 	domain  string
@@ -68,6 +68,7 @@ type options struct {
 	check     bool
 	update    bool
 	siteScan  bool
+	sitePlof  bool
 }
 
 func main() {
@@ -82,7 +83,8 @@ func main() {
 	flag.BoolVar(&o.version, "version", false, "Toon NetScope versie")
 	flag.BoolVar(&o.check, "check", false, "Controleer op updates")
 	flag.BoolVar(&o.update, "update", false, "Update naar de nieuwste versie")
-	flag.BoolVar(&o.siteScan, "sitescan", false, "Voer alle web security scans direct uit")
+	flag.BoolVar(&o.siteScan, "sitescan", false, "Voer alle web/dns scans uit en genereer een PDF")
+	flag.BoolVar(&o.sitePlof, "siteplof", false, "Interactieve L7 attack flow (Domain -> Level -> Attack)")
 
 	// DNS & Mail
 	flag.BoolVar(&o.inf, "inf", false, "DNS + Mail checks (combineer met -n of -whois)")
@@ -170,7 +172,8 @@ func main() {
 		})
 
 		printBoxedSection("🔍 DISCOVERY & ANALYSE", []flagHelp{
-			{"-sitescan", "Shortcut: Voer alle onderstaande web scans in één keer uit"},
+			{"-sitescan", "Shortcut: Voer alle scans uit en maak een PDF rapportage"},
+			{"-siteplof", "Interactieve Stress Test Navigator (Wizard-style)"},
 			{"-dir", "Uitgebreide Directory & File Busting (downloadt SecLists)"},
 			{"-params", "Verborgen Parameter Discovery (Fuzzing)"},
 			{"-cms", "Agressieve CMS & Plugin discovery (WP/Joomla)"},
@@ -196,6 +199,7 @@ func main() {
 	flag.Parse()
 
 	if o.siteScan {
+		o.inf = true
 		o.httpCheck = true
 		o.tlsCheck = true
 		o.headersCheck = true
@@ -208,6 +212,12 @@ func main() {
 		o.techCheck = true
 		o.crawlerCheck = true
 		o.methodCheck = true
+	}
+
+	if o.sitePlof {
+		printBanner(version)
+		runSitePlof(o)
+		return
 	}
 
 	if o.version {
@@ -232,7 +242,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if o.domain == "" {
+	if o.domain == "" && !o.sitePlof {
 		runDiscoveryWizard(o)
 		return
 	}

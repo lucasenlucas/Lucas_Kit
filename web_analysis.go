@@ -142,6 +142,23 @@ func runWebAnalysis(o options) {
 				if poweredBy != "" {
 					fmt.Printf("[*] X-Powered-By:      %s\n", poweredBy)
 				}
+
+				// DDoS Difficulty Logic
+				advLevel := 1
+				if avg < 50 {
+					advLevel = 3
+				} else if avg < 150 {
+					advLevel = 5
+				} else {
+					advLevel = 7
+				}
+				if strings.Contains(strings.ToLower(server), "cloudflare") || strings.Contains(strings.ToLower(server), "nginx") {
+					advLevel += 2
+				}
+				if advLevel > 10 {
+					advLevel = 10
+				}
+				fmt.Printf("[*] Geadviseerd Attack Level: %d (1-10)\n", advLevel)
 			}
 		}
 	}
