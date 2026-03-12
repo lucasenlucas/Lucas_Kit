@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const version = "4.7.0"
+const version = "4.8.0"
 
 type options struct {
 	domain   string
@@ -33,6 +33,9 @@ type options struct {
 	// DNS config
 	resolver string
 	timeout  time.Duration
+
+	// Proxy support
+	proxyFile string
 }
 
 func main() {
@@ -48,6 +51,7 @@ func main() {
 	flag.BoolVar(&o.version, "version", false, "Show version")
 	flag.BoolVar(&o.check, "check", false, "Check for updates")
 	flag.BoolVar(&o.update, "update", false, "Update to latest version")
+	flag.StringVar(&o.proxyFile, "proxies", "", "File with proxy list (IP:Port)")
 
 	// Internal Stress/DNS defaults
 	o.timeout = 5 * time.Second
