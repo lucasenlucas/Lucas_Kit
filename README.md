@@ -95,4 +95,4 @@ netscope -d eigen-test-site.nl -f attack
 ```
 
 ---
-_NetScope is onderdeel van het Lucas Kit platform._
+_NetScope is onderdeel van gost three tooling by Lucas Mangroelal and Quin de Lira._
