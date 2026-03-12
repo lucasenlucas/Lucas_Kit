@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"syscall"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,6 +84,7 @@ func applyLevelSettings(o *options) {
 }
 
 func runAttack(domains []string, o options) {
+	setRlimits()
 	if o.proxyFile != "" {
 		loadProxies(o.proxyFile)
 	}
@@ -115,7 +117,8 @@ func runAttack(domains []string, o options) {
 		go startHealthMonitor(s, deadline)
 
 		// Start Attackers with dynamic workers
-		for i := 0; i < 50000; i++ { // Start a large pool of dormant workers
+		// God Mode: Increase pool to a massive number to handle extreme concurrency
+		for i := 0; i < 500000; i++ { 
 			go worker(s, deadline, i, o.noKeepAlive)
 		}
 	}
@@ -319,9 +322,32 @@ func runSitePlof(o options) {
 
 func measureSystemResources() int {
 	cpus := runtime.NumCPU()
-	// Conservative estimate: 15.000 workers per core is usually safe for Go on modern OS
-	// Max limit for "max max max" should be high but not crash the OS
-	return cpus * 15000
+	// God Mode: 250.000 workers per core. Absolute max throughput.
+	return cpus * 250000
+}
+
+func setRlimits() {
+	var rLimit syscall.Rlimit
+	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		fmt.Printf("[!] Kon huidige FD limiet niet ophalen: %v\n", err)
+		return
+	}
+
+	// Probeer limieten naar het uiterste te pushen
+	rLimit.Cur = rLimit.Max
+	err = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		// Als we geen root zijn of OS het weigert, probeer een goede middenweg
+		rLimit.Cur = 65535
+		if rLimit.Cur > rLimit.Max {
+			rLimit.Cur = rLimit.Max
+		}
+		syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	}
+	
+	syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	fmt.Printf("[*] Systeem Limiet Geoptimaliseerd: %d Open Files\n", rLimit.Cur)
 }
 
 func startHealthMonitor(s *domainStats, deadline time.Time) {

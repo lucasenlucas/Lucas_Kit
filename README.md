@@ -1,4 +1,4 @@
-# NetScope (v4.7.0) 🚀
+# NetScope (v5.0.0) ⚡️ GOD MODE
 **The Ultimate DNS, Web Analysis & Stress Testing Engine.**
 
 NetScope is a powerful, flag-based CLI tool designed for comprehensive domain analysis and network stress testing. Formerly known as Lucas Kit, it has evolved into a streamlined platform for security researchers and system administrators.
