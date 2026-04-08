@@ -1,0 +1,40 @@
+project_name: netscope
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: netscope
+    main: ./cmd/netscope
+    binary: netscope
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    builds:
+      - netscope
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "netscope_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
