@@ -26,14 +26,6 @@ var profileMap = map[string][]string{
 	"crawl-lite": {"links", "scripts", "forms"},
 }
 
-// Module map for CLI help
-var allModules = []string{
-	"dns", "whois", "ip", "subs", "email", "ports",
-	"status", "headers", "redirect", "tls", "tech", "cookies",
-	"links", "scripts", "forms", "robots", "sitemap",
-	"title", "favicon",
-}
-
 func main() {
 	domainPtr := flag.String("d", "", "Target domain (e.g. example.com)")
 	funcPtr := flag.String("f", "", "Module or Profile to run (e.g. dns, full, quick)")
@@ -42,23 +34,20 @@ func main() {
 	versionPtr := flag.Bool("version", false, "Show version")
 
 	flag.Usage = func() {
-		output.PrintBanner(version)
-		fmt.Fprintf(os.Stderr, "Usage: netscope -d <target> -f <mode>\n\n")
+		output.PrintGeneralHelp(version)
+	}
 
-		fmt.Fprintf(os.Stderr, "=== Quick Start ===\n")
-		fmt.Fprintf(os.Stderr, "  netscope -d example.com -f quick\n")
-		fmt.Fprintf(os.Stderr, "  netscope -d example.com -f full --json -o ./results\n\n")
-
-		fmt.Fprintf(os.Stderr, "=== Profiles ===\n")
-		for k, m := range profileMap {
-			fmt.Fprintf(os.Stderr, "  %-12s : %s\n", k, strings.Join(m, ", "))
+	// Intercept --help <module> manually before flag parse intercept
+	for i, arg := range os.Args {
+		if arg == "-h" || arg == "--help" {
+			if i+1 < len(os.Args) {
+				// User provided a specific module name
+				output.PrintDetailedHelp(version, os.Args[i+1])
+				os.Exit(0)
+			}
+			// Let it trigger default flag.Usage below naturally
+			break
 		}
-		
-		fmt.Fprintf(os.Stderr, "\n=== Modules ===\n")
-		fmt.Fprintf(os.Stderr, "  %s\n\n", strings.Join(allModules, ", "))
-
-		fmt.Fprintf(os.Stderr, "=== Special ===\n")
-		fmt.Fprintf(os.Stderr, "  netscope doctor  : Run environment checks\n")
 	}
 
 	// Check if doctor
