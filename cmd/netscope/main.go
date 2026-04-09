@@ -14,7 +14,7 @@ import (
 	"netscope/internal/web"
 )
 
-const version = "8.4.2026"
+const version = "9.4.2026"
 
 var profileMap = map[string][]string{
 	"quick":      {"ip", "status", "headers", "tls", "title"},
