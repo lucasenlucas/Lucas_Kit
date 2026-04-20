@@ -33,7 +33,7 @@ esac
 echo "🔍 Detected: OS=$OS, Architecture=$ARCH ($ARCH_RAW)"
 
 # Release Retrieval
-echo "🔍 Bezig met ophalen van de nieuwste release..."
+echo "🔍 Fetching the latest release..."
 echo ""
 
 api="https://api.github.com/repos/${REPO}/releases/latest"

@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $os = "windows"
 $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
 
-Write-Host "🔍 Bezig met ophalen van de nieuwste release..." -ForegroundColor Green
+Write-Host "🔍 Fetching the latest release..." -ForegroundColor Green
 Write-Host ""
 
 $api = "https://api.github.com/repos/$Repo/releases/latest"

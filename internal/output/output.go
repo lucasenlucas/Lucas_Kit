@@ -18,7 +18,7 @@ func PrintBanner(version string) {
 ██║ ╚████║███████╗   ██║   ███████║╚██████╗╚██████╔╝██║     ███████╗
 ╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝` + "\033[0m\n"
 	fmt.Println(banner)
-	fmt.Println("NetScope by Lucas Mangroelal | lucasmangroelal.nl")
+	fmt.Println("NetScope by Netseries Team | Netseries.dev")
 	fmt.Printf("Version: %s | Platform: %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
 	fmt.Println("")
 }
